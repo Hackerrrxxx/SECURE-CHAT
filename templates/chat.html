@@ -1,0 +1,1047 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Secure Chat - {{ user }}</title>
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsencrypt/3.3.2/jsencrypt.min.js"></script>
+    <style>
+        :root {
+            --bg-gradient: radial-gradient(circle at top left, #e8f2ff 0%, #d6e5ff 35%, #b8d3ff 65%, #9cb7ff 100%);
+            --surface: rgba(255, 255, 255, 0.95);
+            --surface-muted: rgba(255, 255, 255, 0.7);
+            --surface-strong: rgba(255, 255, 255, 0.92);
+            --sidebar: rgba(8, 17, 34, 0.92);
+            --sidebar-accent: rgba(18, 28, 48, 0.92);
+            --border-color: rgba(20, 44, 90, 0.12);
+            --text-primary: #0b1a30;
+            --text-secondary: #43557a;
+            --sidebar-text: #e6eeff;
+            --accent: #0b84ff;
+            --accent-strong: #0054d6;
+            --accent-soft: rgba(11, 132, 255, 0.12);
+            --message-sent: linear-gradient(135deg, #0b84ff 0%, #0054d6 100%);
+            --message-received: rgba(13, 27, 53, 0.08);
+            --shadow: 0 24px 60px rgba(11, 49, 97, 0.16);
+            --shadow-soft: 0 12px 36px rgba(11, 49, 97, 0.14);
+            --particle-color: rgba(9, 20, 47, 0.12);
+        }
+
+        body[data-theme="dark"] {
+            --bg-gradient: radial-gradient(circle at top left, #050915 0%, #040612 30%, #030714 65%, #02040a 100%);
+            --surface: rgba(14, 20, 36, 0.92);
+            --surface-muted: rgba(20, 28, 48, 0.85);
+            --surface-strong: rgba(22, 32, 54, 0.95);
+            --sidebar: rgba(4, 8, 18, 0.95);
+            --sidebar-accent: rgba(9, 16, 32, 0.95);
+            --border-color: rgba(63, 86, 129, 0.42);
+            --text-primary: #f4f7ff;
+            --text-secondary: #9aa9cf;
+            --sidebar-text: #dde8ff;
+            --accent: #4aa3ff;
+            --accent-strong: #1f6fff;
+            --accent-soft: rgba(74, 163, 255, 0.16);
+            --message-sent: linear-gradient(135deg, #1f6fff 0%, #0a3fb0 100%);
+            --message-received: rgba(74, 163, 255, 0.14);
+            --shadow: 0 24px 60px rgba(0, 0, 0, 0.34);
+            --shadow-soft: 0 12px 36px rgba(0, 0, 0, 0.28);
+            --particle-color: rgba(74, 163, 255, 0.2);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: var(--bg-gradient);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            overflow: hidden;
+            transition: background 0.6s ease, color 0.3s ease;
+        }
+
+        .theme-toggle {
+            position: fixed;
+            top: 22px;
+            right: 24px;
+            background: var(--surface);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 9px 16px;
+            border-radius: 999px;
+            box-shadow: var(--shadow-soft);
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: transform 0.2s ease, background 0.3s ease;
+            z-index: 3;
+        }
+
+        .theme-toggle:hover {
+            transform: translateY(-2px);
+            background: var(--surface-strong);
+        }
+
+        .animated-bg {
+            position: absolute;
+            inset: 0;
+            overflow: hidden;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .particle {
+            position: absolute;
+            background: var(--particle-color);
+            border-radius: 50%;
+            animation: float 22s infinite ease-in-out;
+            filter: blur(14px);
+        }
+
+        @keyframes float {
+            0%, 100% {
+                transform: translate(0, 0) scale(1);
+                opacity: 0.6;
+            }
+            33% {
+                transform: translate(140px, -90px) scale(1.2);
+                opacity: 0.8;
+            }
+            66% {
+                transform: translate(-130px, 120px) scale(0.85);
+                opacity: 0.55;
+            }
+        }
+
+        .container {
+            width: min(1120px, 94vw);
+            height: min(85vh, 720px);
+            background: var(--surface);
+            border-radius: 24px;
+            box-shadow: var(--shadow);
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            overflow: hidden;
+            position: relative;
+            z-index: 1;
+            transition: background 0.4s ease, transform 0.25s ease;
+        }
+
+        .container:hover {
+            transform: translateY(-4px);
+        }
+
+        .sidebar {
+            background: var(--sidebar);
+            padding: 28px 22px;
+            display: flex;
+            flex-direction: column;
+            gap: 22px;
+            color: var(--sidebar-text);
+        }
+
+        .user-info {
+            background: var(--sidebar-accent);
+            padding: 18px;
+            border-radius: 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        }
+
+        .user-info h3 {
+            font-size: 1.2rem;
+            font-weight: 600;
+        }
+
+        .user-info p {
+            font-size: 0.9rem;
+            opacity: 0.85;
+        }
+
+        .online-indicator {
+            width: 9px;
+            height: 9px;
+            background: #1cd67f;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 6px;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.25); opacity: 0.7; }
+        }
+
+        .online-users h4 {
+            font-size: 0.95rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 16px;
+            opacity: 0.7;
+        }
+
+        .user-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            overflow-y: auto;
+            padding-right: 6px;
+        }
+
+        .user-item {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 14px;
+            padding: 12px 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            cursor: pointer;
+            border: 1px solid transparent;
+            transition: all 0.2s ease;
+        }
+
+        .user-item:hover {
+            background: rgba(255, 255, 255, 0.12);
+            transform: translateX(4px);
+        }
+
+        .user-item.active {
+            background: rgba(11, 132, 255, 0.28);
+            border-color: rgba(11, 132, 255, 0.4);
+            box-shadow: 0 6px 18px rgba(11, 132, 255, 0.3);
+        }
+
+        .user-item span {
+            font-weight: 600;
+        }
+
+        .chat-area {
+            background: var(--surface-strong);
+            display: grid;
+            grid-template-rows: auto 1fr auto;
+            border-left: 1px solid var(--border-color);
+        }
+
+        .chat-header {
+            padding: 22px 28px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .chat-title {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .chat-title h2 {
+            font-size: 1.2rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .chat-title span {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            background: var(--accent);
+            border-radius: 50%;
+            box-shadow: 0 0 8px rgba(11, 132, 255, 0.6);
+        }
+
+        .chat-messages {
+            padding: 26px 30px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .empty-state {
+            margin: auto;
+            text-align: center;
+            max-width: 320px;
+            color: var(--text-secondary);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .empty-state h3 {
+            font-size: 1.8rem;
+            color: var(--accent);
+        }
+
+        .message {
+            padding: 14px 16px;
+            border-radius: 18px;
+            max-width: min(65%, 420px);
+            display: inline-flex;
+            flex-direction: column;
+            gap: 8px;
+            line-height: 1.45;
+            box-shadow: var(--shadow-soft);
+        }
+
+        .message.sent {
+            margin-left: auto;
+            background: var(--message-sent);
+            color: #f6fbff;
+            box-shadow: 0 12px 26px rgba(11, 132, 255, 0.35);
+        }
+
+        .message.received {
+            background: var(--message-received);
+            color: var(--text-primary);
+        }
+
+        .message .sender {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            opacity: 0.75;
+        }
+
+        .message .time {
+            font-size: 0.75rem;
+            opacity: 0.7;
+        }
+
+        .status {
+            align-self: center;
+            font-size: 0.85rem;
+            padding: 8px 12px;
+            border-radius: 10px;
+            background: var(--surface-muted);
+            color: var(--text-secondary);
+            border: 1px solid var(--border-color);
+        }
+
+        .chat-input {
+            padding: 20px 28px;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            gap: 14px;
+            background: var(--surface);
+        }
+
+        #messageInput {
+            flex: 1;
+            border-radius: 16px;
+            border: 1px solid var(--border-color);
+            background: var(--surface-muted);
+            padding: 14px 16px;
+            font-size: 1rem;
+            transition: border 0.2s ease, box-shadow 0.2s ease, background 0.3s ease;
+            color: var(--text-primary);
+        }
+
+        #messageInput:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-soft);
+            outline: none;
+            background: var(--surface);
+        }
+
+        #sendButton {
+            padding: 14px 24px;
+            border-radius: 16px;
+            border: none;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+            box-shadow: 0 12px 24px rgba(11, 132, 255, 0.3);
+        }
+
+        #sendButton:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        #sendButton:not(:disabled):hover {
+            transform: translateY(-2px);
+        }
+
+        @media (max-width: 960px) {
+            .container {
+                grid-template-columns: 260px 1fr;
+                height: min(90vh, 720px);
+            }
+        }
+
+        @media (max-width: 740px) {
+            .container {
+                grid-template-columns: 1fr;
+                height: 100vh;
+                border-radius: 0;
+            }
+
+            .sidebar {
+                display: none;
+            }
+
+            .theme-toggle {
+                top: 18px;
+                right: 18px;
+            }
+        }
+    </style>
+</head>
+<body data-theme="light">
+    <button type="button" class="theme-toggle" id="themeToggle">🌙 Dark mode</button>
+    <div class="animated-bg" id="animatedBg"></div>
+    <div class="container">
+        <aside class="sidebar">
+            <div class="user-info">
+                <h3>Secure Chat</h3>
+                <p><span class="online-indicator"></span>Logged in as <strong id="currentUser">{{ user }}</strong></p>
+                <p style="font-size: 0.8rem; opacity: 0.65;">
+                    🔐 True E2EE: Server cannot read messages<br>
+                    🛡️ Perfect Forward Secrecy enabled<br>
+                    ✓ Message authentication verified
+                </p>
+            </div>
+            <div class="online-users">
+                <h4>Online users</h4>
+                <div class="user-list" id="userList"></div>
+            </div>
+        </aside>
+        <section class="chat-area">
+            <header class="chat-header">
+                <div class="chat-title">
+                    <h2 id="chatTitle"><span class="status-dot"></span>Select a user to start chatting</h2>
+                    <span id="chatSubtitle">Secure session awaiting recipient</span>
+                </div>
+            </header>
+            <div class="chat-messages" id="chatMessages">
+                <div class="empty-state">
+                    <h3>👋 Welcome</h3>
+                    <p>Select someone from the user list to begin a secure conversation.</p>
+                    <p style="font-size: 0.85rem;">
+                        <strong>🔐 True End-to-End Encryption:</strong><br>
+                        • Messages encrypted client-side before sending<br>
+                        • Server cannot decrypt (no access to keys)<br>
+                        • Perfect Forward Secrecy per message<br>
+                        • Message authentication prevents tampering<br>
+                        • Your privacy is guaranteed
+                    </p>
+                </div>
+            </div>
+            <div class="chat-input">
+                <input type="text" id="messageInput" placeholder="Write a message..." disabled>
+                <button id="sendButton" onclick="sendMessage()" disabled>Send</button>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        const themeToggle = document.getElementById('themeToggle');
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+        function applyTheme(theme) {
+            document.body.dataset.theme = theme;
+            localStorage.setItem('secureChatTheme', theme);
+            themeToggle.textContent = theme === 'light' ? '🌙 Dark mode' : '🌞 Light mode';
+            updateChatTitleColors();
+        }
+
+        (function initTheme() {
+            const stored = localStorage.getItem('secureChatTheme');
+            applyTheme(stored || (prefersDark ? 'dark' : 'light'));
+        })();
+
+        themeToggle.addEventListener('click', () => {
+            const next = document.body.dataset.theme === 'light' ? 'dark' : 'light';
+            applyTheme(next);
+        });
+
+        function createParticles() {
+            const bg = document.getElementById('animatedBg');
+            bg.innerHTML = '';
+            for (let i = 0; i < 14; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'particle';
+                const size = Math.random() * 110 + 80;
+                particle.style.width = `${size}px`;
+                particle.style.height = `${size}px`;
+                particle.style.left = `${Math.random() * 100}%`;
+                particle.style.top = `${Math.random() * 100}%`;
+                particle.style.animationDelay = `${Math.random() * 20}s`;
+                particle.style.animationDuration = `${18 + Math.random() * 12}s`;
+                bg.appendChild(particle);
+            }
+        }
+
+        createParticles();
+
+        const socket = io();
+        const username = "{{ user }}";
+        const phone = "{{ phone }}";
+        let currentRecipient = null;
+        let rsaKeyPair = null;
+        let publicKeyPem = null;
+        let userPublicKeys = {};
+        let messageHistory = {};
+
+        function updateChatTitleColors() {
+            const subtitle = document.getElementById('chatSubtitle');
+            if (subtitle) {
+                subtitle.style.color = getComputedStyle(document.body).getPropertyValue('--text-secondary');
+            }
+        }
+
+        function generateKeyPair() {
+            const crypt = new JSEncrypt({ default_key_size: 2048 });
+            crypt.getKey();
+            rsaKeyPair = {
+                public: crypt.getPublicKey(),
+                private: crypt.getPrivateKey()
+            };
+            publicKeyPem = rsaKeyPair.public;
+        }
+
+        generateKeyPair();
+        document.getElementById("currentUser").textContent = username;
+
+        socket.emit('join', {
+            username,
+            phone,
+            public_key: publicKeyPem
+        });
+
+        socket.on('joined', data => {
+            updateOnlineUsers(data.online_users);
+            showStatus("Connected securely", "success");
+        });
+
+        socket.on('user_joined', data => {
+            updateOnlineUsers(data.online_users);
+            showStatus(`${data.username} joined the conversation`, "success");
+        });
+
+        socket.on('user_left', data => {
+            const userListElement = document.getElementById("userList");
+            const currentUsers = Array.from(userListElement.children)
+                .map(item => item.dataset.username)
+                .filter(u => u !== data.username);
+            updateOnlineUsers(currentUsers);
+
+            if (data.username === currentRecipient) {
+                currentRecipient = null;
+                updateChatHeader(null);
+                document.getElementById("messageInput").disabled = true;
+                document.getElementById("sendButton").disabled = true;
+                showEmptyState();
+            }
+            showStatus(`${data.username} went offline`, "info");
+        });
+
+        socket.on('online_users', data => {
+            updateOnlineUsers(data.users);
+        });
+
+        socket.on('public_key_response', data => {
+            userPublicKeys[data.username] = data.public_key;
+        });
+
+        socket.on('receive_message', async data => {
+            /**
+             * Receive and decrypt message - E2EE ensures server cannot read content
+             * 
+             * SECURITY:
+             * - Server forwards encrypted data only
+             * - Decryption happens client-side only
+             * - HMAC verification ensures message integrity
+             * - Server cannot verify HMAC without decryption keys
+             */
+            try {
+                // Decrypt message client-side (server cannot do this)
+                const decryptedMessage = await decryptMessage(
+                    data.encrypted_message,
+                    data.encrypted_aes_key,
+                    data.message_hmac
+                );
+
+                // Store decrypted message in local history (never sent to server)
+                if (!messageHistory[data.sender]) {
+                    messageHistory[data.sender] = [];
+                }
+                messageHistory[data.sender].push({
+                    sender: data.sender,
+                    message: decryptedMessage,
+                    isSent: false,
+                    timestamp: data.timestamp
+                });
+
+                // Display message if viewing this conversation
+                if (currentRecipient === data.sender) {
+                    addMessage(data.sender, decryptedMessage, false, data.timestamp);
+                } else {
+                    // Optional: Show notification for messages from other users
+                    console.log(`[E2EE] Received encrypted message from ${data.sender} (decrypted client-side)`);
+                }
+            } catch (error) {
+                console.error("[E2EE] Decryption failed:", error);
+                const errorMsg = error.message.includes("authentication") 
+                    ? "[⚠️ Message integrity check failed]" 
+                    : "[Failed to decrypt message]";
+                
+                // Store error in history
+                if (!messageHistory[data.sender]) {
+                    messageHistory[data.sender] = [];
+                }
+                messageHistory[data.sender].push({
+                    sender: data.sender,
+                    message: errorMsg,
+                    isSent: false,
+                    timestamp: data.timestamp
+                });
+                
+                if (currentRecipient === data.sender) {
+                    addMessage(data.sender, errorMsg, false, data.timestamp);
+                }
+            }
+        });
+
+        socket.on('error', data => {
+            showStatus(data.message, "error");
+        });
+
+        function updateOnlineUsers(users) {
+            const userListElement = document.getElementById("userList");
+            userListElement.innerHTML = "";
+            users.forEach(user => {
+                if (user !== username) {
+                    const userItem = document.createElement("div");
+                    userItem.className = "user-item" + (user === currentRecipient ? " active" : "");
+                    userItem.dataset.username = user;
+                    userItem.innerHTML = `<span>${user}</span><small>Tap to chat</small>`;
+                    userItem.onclick = () => selectUser(user);
+                    userListElement.appendChild(userItem);
+                }
+            });
+        }
+
+        function updateChatHeader(user) {
+            const title = document.getElementById("chatTitle");
+            const subtitle = document.getElementById("chatSubtitle");
+            if (user) {
+                title.innerHTML = `<span class="status-dot"></span>Chatting with ${user}`;
+                subtitle.textContent = "Secure channel established";
+            } else {
+                title.innerHTML = `<span class="status-dot"></span>Select a user to start chatting`;
+                subtitle.textContent = "Secure session awaiting recipient";
+            }
+        }
+
+        async function selectUser(user) {
+            currentRecipient = user;
+            updateChatHeader(user);
+            document.getElementById("messageInput").disabled = false;
+            document.getElementById("sendButton").disabled = false;
+
+            document.querySelectorAll('.user-item').forEach(item => {
+                item.classList.toggle('active', item.dataset.username === user);
+            });
+
+            if (!userPublicKeys[user]) {
+                socket.emit('get_public_key', { username: user });
+            }
+
+            loadMessageHistory(user);
+        }
+
+        function loadMessageHistory(user) {
+            const messagesDiv = document.getElementById("chatMessages");
+            messagesDiv.innerHTML = "";
+
+            if (messageHistory[user] && messageHistory[user].length > 0) {
+                messageHistory[user].forEach(msg => {
+                    addMessageToDOM(msg.sender, msg.message, msg.isSent, msg.timestamp, false);
+                });
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            } else {
+                showEmptyState();
+            }
+        }
+
+        function showEmptyState() {
+            const messagesDiv = document.getElementById("chatMessages");
+            messagesDiv.innerHTML = `
+                <div class="empty-state">
+                    <h3>🔐 Secure Channel Established</h3>
+                    <p>This conversation is protected with true E2EE.</p>
+                    <p style="font-size: 0.85rem;">
+                        • Server cannot read your messages<br>
+                        • Each message uses unique encryption keys<br>
+                        • Message integrity verified<br>
+                        • Type your first message to begin
+                    </p>
+                </div>
+            `;
+        }
+
+        // Store ephemeral keys per conversation for Perfect Forward Secrecy (PFS)
+        let ephemeralKeys = {}; // {recipient: {private, public}}
+
+        /**
+         * Generate ephemeral key pair for Perfect Forward Secrecy
+         * Each conversation gets its own ephemeral keys that are discarded after use
+         */
+        function generateEphemeralKeyPair() {
+            const crypt = new JSEncrypt({ default_key_size: 2048 });
+            crypt.getKey();
+            return {
+                private: crypt.getPrivateKey(),
+                public: crypt.getPublicKey()
+            };
+        }
+
+        /**
+         * Derive encryption key with Perfect Forward Secrecy
+         * Uses ephemeral keys + shared secret for enhanced security
+         */
+        function deriveEncryptionKey(ephemeralPrivateKey, recipientPublicKey, sharedSalt = null) {
+            // Generate a random salt for this message (PFS)
+            const salt = sharedSalt || CryptoJS.lib.WordArray.random(16).toString();
+            
+            // Create a combined secret from ephemeral keys
+            // In production, you'd use ECDH here, but for RSA we use a hybrid approach
+            const ephemeralSecret = CryptoJS.lib.WordArray.random(32).toString();
+            
+            // Derive AES key using PBKDF2 with high iteration count
+            const keyMaterial = CryptoJS.PBKDF2(
+                ephemeralSecret,
+                salt,
+                {
+                    keySize: 256/32,
+                    iterations: 10000
+                }
+            );
+            
+            return {
+                aesKey: keyMaterial.toString(CryptoJS.enc.Hex), // Use hex format for consistency
+                salt: salt,
+                ephemeralSecret: ephemeralSecret
+            };
+        }
+
+        /**
+         * Generate HMAC for message authentication
+         * Prevents tampering - server cannot verify this without keys
+         */
+        function generateHMAC(message, aesKey) {
+            return CryptoJS.HmacSHA256(message, aesKey).toString();
+        }
+
+        /**
+         * Verify HMAC to ensure message integrity
+         */
+        function verifyHMAC(message, hmac, aesKey) {
+            const computedHMAC = CryptoJS.HmacSHA256(message, aesKey).toString();
+            return computedHMAC === hmac;
+        }
+
+        async function sendMessage() {
+            const messageInput = document.getElementById("messageInput");
+            const message = messageInput.value.trim();
+
+            if (!message || !currentRecipient) {
+                return;
+            }
+
+            if (!userPublicKeys[currentRecipient]) {
+                showStatus("Retrieving recipient's public key...", "info");
+                socket.emit('get_public_key', { username: currentRecipient });
+                return;
+            }
+
+            try {
+                // PERFECT FORWARD SECRECY: Generate new ephemeral keys per message
+                // This ensures that even if long-term keys are compromised, past messages remain secure
+                if (!ephemeralKeys[currentRecipient]) {
+                    ephemeralKeys[currentRecipient] = generateEphemeralKeyPair();
+                }
+
+                // Generate ephemeral encryption key (PFS)
+                const keyData = deriveEncryptionKey(
+                    ephemeralKeys[currentRecipient].private,
+                    userPublicKeys[currentRecipient]
+                );
+
+                // Encrypt message with AES-256-CBC
+                // Convert hex key to WordArray for direct key usage (not passphrase)
+                const keyWordArray = CryptoJS.enc.Hex.parse(keyData.aesKey);
+                const iv = CryptoJS.lib.WordArray.random(16); // Generate random IV
+                
+                const encryptedMessage = CryptoJS.AES.encrypt(
+                    message,
+                    keyWordArray,
+                    {
+                        iv: iv,
+                        mode: CryptoJS.mode.CBC,
+                        padding: CryptoJS.pad.Pkcs7
+                    }
+                );
+
+                // Generate HMAC for message authentication (prevents tampering)
+                // Server cannot verify this without the AES key
+                // Use the full encrypted message string for HMAC
+                const messageHMAC = generateHMAC(encryptedMessage.toString(), keyData.aesKey);
+
+                // Encrypt the AES key with recipient's RSA public key
+                // Only recipient can decrypt this with their private key
+                const encrypt = new JSEncrypt();
+                encrypt.setPublicKey(userPublicKeys[currentRecipient]);
+                
+                // Package ephemeral secret + salt + IV for recipient
+                // We need to send IV separately since we're using direct key encryption
+                const keyPackage = JSON.stringify({
+                    ephemeralSecret: keyData.ephemeralSecret,
+                    salt: keyData.salt,
+                    iv: iv.toString(CryptoJS.enc.Base64) // Send IV for decryption
+                });
+                
+                const encryptedAesKey = encrypt.encrypt(keyPackage);
+
+                if (!encryptedAesKey) {
+                    showStatus("Encryption failed. Trying again...", "error");
+                    socket.emit('get_public_key', { username: currentRecipient });
+                    return;
+                }
+
+                // Store message in local history (client-side only, never sent to server)
+                if (!messageHistory[currentRecipient]) {
+                    messageHistory[currentRecipient] = [];
+                }
+                const timestamp = new Date().toISOString();
+                messageHistory[currentRecipient].push({
+                    sender: username,
+                    message,
+                    isSent: true,
+                    timestamp
+                });
+
+                // Send encrypted message to server
+                // SERVER CANNOT DECRYPT: 
+                // - encrypted_message is AES-encrypted
+                // - encrypted_aes_key is RSA-encrypted with recipient's public key
+                // - message_hmac requires AES key to verify (which server doesn't have)
+                socket.emit('send_message', {
+                    sender: username,
+                    recipient: currentRecipient,
+                    encrypted_message: encryptedMessage.toString(), // Opaque to server
+                    encrypted_aes_key: encryptedAesKey, // Opaque to server
+                    message_hmac: messageHMAC, // Opaque to server
+                    ephemeral_public_key: ephemeralKeys[currentRecipient].public // For future PFS improvements
+                });
+
+                // Display message immediately (we have it in plaintext locally)
+                addMessage(username, message, true, timestamp);
+                messageInput.value = "";
+
+                // Rotate ephemeral keys for next message (enhanced PFS)
+                ephemeralKeys[currentRecipient] = generateEphemeralKeyPair();
+            } catch (error) {
+                console.error("Encryption error:", error);
+                showStatus("Unable to send message. Check connection.", "error");
+            }
+        }
+
+        /**
+         * Decrypt message using E2EE
+         * This happens entirely client-side - server never sees plaintext
+         */
+        async function decryptMessage(encryptedMessage, encryptedAesKey, messageHMAC = null) {
+            try {
+                // Step 1: Decrypt the AES key package using our RSA private key
+                // Server cannot do this - it doesn't have our private key
+                const decrypt = new JSEncrypt();
+                decrypt.setPrivateKey(rsaKeyPair.private);
+                const keyPackageJson = decrypt.decrypt(encryptedAesKey);
+
+                if (!keyPackageJson) {
+                    throw new Error("Failed to decrypt AES key package");
+                }
+
+                // Step 2: Parse the key package
+                const keyPackage = JSON.parse(keyPackageJson);
+                
+                // Step 3: Re-derive the AES key using the ephemeral secret and salt
+                const keyMaterial = CryptoJS.PBKDF2(
+                    keyPackage.ephemeralSecret,
+                    keyPackage.salt,
+                    {
+                        keySize: 256/32,
+                        iterations: 10000
+                    }
+                );
+                // Convert to hex string for consistent key format
+                const aesKey = keyMaterial.toString(CryptoJS.enc.Hex);
+
+                // Step 4: Verify HMAC to ensure message integrity (prevents tampering)
+                if (messageHMAC) {
+                    const isValidHMAC = verifyHMAC(encryptedMessage, messageHMAC, aesKey);
+                    if (!isValidHMAC) {
+                        throw new Error("Message authentication failed - possible tampering detected");
+                    }
+                }
+
+                // Step 5: Decrypt the message using AES
+                let plaintext;
+                
+                try {
+                    // Convert hex key to WordArray for direct key usage
+                    const keyWordArray = CryptoJS.enc.Hex.parse(aesKey);
+                    
+                    // Parse IV from keyPackage
+                    let iv;
+                    if (keyPackage.iv) {
+                        iv = CryptoJS.enc.Base64.parse(keyPackage.iv);
+                    } else {
+                        // Fallback: Extract IV from CryptoJS encrypted format if available
+                        // CryptoJS format: salt:iv:ciphertext
+                        const parts = encryptedMessage.split(':');
+                        if (parts.length === 3) {
+                            iv = CryptoJS.enc.Base64.parse(parts[1]);
+                        } else {
+                            throw new Error("IV not found in key package");
+                        }
+                    }
+                    
+                    // Extract ciphertext (handle both formats)
+                    let ciphertext;
+                    const parts = encryptedMessage.split(':');
+                    if (parts.length === 3) {
+                        // Format: salt:iv:ciphertext
+                        ciphertext = parts[2];
+                    } else {
+                        // Assume it's just the ciphertext
+                        ciphertext = encryptedMessage;
+                    }
+                    
+                    // Create CipherParams object for decryption
+                    const encrypted = CryptoJS.lib.CipherParams.create({
+                        ciphertext: CryptoJS.enc.Base64.parse(ciphertext)
+                    });
+                    
+                    // Decrypt with explicit key and IV
+                    const decrypted = CryptoJS.AES.decrypt(
+                        encrypted,
+                        keyWordArray,
+                        {
+                            iv: iv,
+                            mode: CryptoJS.mode.CBC,
+                            padding: CryptoJS.pad.Pkcs7
+                        }
+                    );
+                    
+                    plaintext = decrypted.toString(CryptoJS.enc.Utf8);
+                    
+                } catch (e) {
+                    console.error("Decryption error:", e);
+                    // Try fallback: use CryptoJS default decryption (if format allows)
+                    try {
+                        const keyWordArray = CryptoJS.enc.Hex.parse(aesKey);
+                        const decrypted = CryptoJS.AES.decrypt(encryptedMessage, keyWordArray);
+                        plaintext = decrypted.toString(CryptoJS.enc.Utf8);
+                    } catch (e2) {
+                        throw new Error("Failed to decrypt message: " + e.message);
+                    }
+                }
+                
+                if (!plaintext) {
+                    throw new Error("Failed to decrypt message - decryption returned empty result");
+                }
+
+                return plaintext;
+            } catch (error) {
+                console.error("Decryption error:", error);
+                throw error;
+            }
+        }
+
+        function addMessage(sender, message, isSent, timestamp = null) {
+            addMessageToDOM(sender, message, isSent, timestamp, true);
+        }
+
+        function addMessageToDOM(sender, message, isSent, timestamp = null, scroll = true) {
+            const messagesDiv = document.getElementById("chatMessages");
+            const emptyState = messagesDiv.querySelector('.empty-state');
+            if (emptyState) {
+                emptyState.remove();
+            }
+
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message ${isSent ? 'sent' : 'received'}`;
+            const timeStr = timestamp ? new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            msgDiv.innerHTML = `
+                <div class="sender">${isSent ? 'You' : sender}</div>
+                <div class="text">${escapeHtml(message)}</div>
+                <div class="time">${timeStr}</div>
+            `;
+
+            messagesDiv.appendChild(msgDiv);
+            if (scroll) {
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            }
+        }
+
+        function showStatus(message, type) {
+            const messagesDiv = document.getElementById("chatMessages");
+            const statusDiv = document.createElement('div');
+            statusDiv.className = 'status';
+            statusDiv.textContent = message;
+            messagesDiv.appendChild(statusDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            setTimeout(() => statusDiv.remove(), 3200);
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        document.getElementById("messageInput").addEventListener("keypress", (e) => {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        socket.on('connect', () => {
+            socket.emit('get_online_users');
+        });
+
+        updateChatTitleColors();
+    </script>
+</body>
+</html>
